@@ -1,1022 +1,468 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { initializeApp } from 'firebase/app';
-import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import React, { useState, useEffect } from 'react';
 import { 
-  getFirestore, collection, addDoc, getDocs, doc, setDoc, 
-  onSnapshot, query, deleteDoc, updateDoc, serverTimestamp 
-} from 'firebase/firestore';
-import { 
-  Users, UserPlus, ClipboardList, CheckCircle, Settings, 
-  LogOut, Download, AlertCircle, ChevronRight, ChevronLeft, Trash2, Edit
+  Users, UserPlus, Trash2, Edit, Save, X, CheckCircle, 
+  Settings, LogOut, ChevronRight, AlertCircle, Mail, Phone, Calendar, Download, Lock, Unlock
 } from 'lucide-react';
 
-// --- Firebase Configuration ---
-const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-const app = initializeApp(firebaseConfig);
-const auth = getAuth(app);
-const db = getFirestore(app);
-const appId = typeof __app_id !== 'undefined' ? __app_id : 'abehan-cup-app';
-
-// --- Master Data ---
-const EVENTS = {
-  DAY1: [
-    { id: 'd1_b_u10', name: '小学４年生以下男子の部', day: 1, label: '23日(土)' },
-    { id: 'd1_g_u10', name: '小学４年生以下女子の部', day: 1, label: '23日(土)' },
-    { id: 'd1_b_u12', name: '小学６年生以下男子の部', day: 1, label: '23日(土)' },
-    { id: 'd1_g_u12', name: '小学６年生以下女子の部', day: 1, label: '23日(土)' },
-    { id: 'd1_b_jh', name: '中学生男子の部', day: 1, label: '23日(土)' },
-    { id: 'd1_g_jh', name: '中学生女子の部', day: 1, label: '23日(土)' },
-  ],
-  DAY2: [
-    { id: 'd2_b_hs', name: '高校生男子の部', day: 2, label: '24日(日)' },
-    { id: 'd2_g_hs', name: '高校生女子の部', day: 2, label: '24日(日)' },
-    { id: 'd2_b_gen', name: '一般男子の部', day: 2, label: '24日(日)' },
-    { id: 'd2_g_gen', name: '一般女子の部', day: 2, label: '24日(日)' },
-    { id: 'd2_b_l', name: 'ラージボール男子の部', day: 2, label: '24日(日)' },
-    { id: 'd2_g_l', name: 'ラージボール女子の部', day: 2, label: '24日(日)' },
-  ]
+// --- 定数定義 ---
+const TOURNAMENT_INFO = {
+  name: '第５回あべはんカップ卓球大会',
+  dates: '2026年5月23日（土）、24日（日）',
+  location: '二戸市総合スポーツセンター',
+  adminPassword: 'abehan2026' // ログイン用パスワード
 };
 
-const ALL_EVENTS = [...EVENTS.DAY1, ...EVENTS.DAY2];
-const ADMIN_PASSWORD = 'Abehanp@ssw0rd';
+const EVENTS_DAY1 = [
+  { id: 'd1_1', name: '小学４年生以下男子の部' },
+  { id: 'd1_2', name: '小学４年生以下女子の部' },
+  { id: 'd1_3', name: '小学６年生以下男子の部' },
+  { id: 'd1_4', name: '小学６年生以下女子の部' },
+  { id: 'd1_5', name: '中学生男子の部' },
+  { id: 'd1_6', name: '中学生女子の部' },
+];
 
-// --- Main Component ---
+const EVENTS_DAY2 = [
+  { id: 'd2_1', name: '高校生男子の部' },
+  { id: 'd2_2', name: '高校生女子の部' },
+  { id: 'd2_3', name: '一般男子の部' },
+  { id: 'd2_4', name: '一般女子の部' },
+  { id: 'd2_5', name: 'ラージボール男子の部' },
+  { id: 'd2_6', name: 'ラージボール女子の部' },
+];
+
+const ALL_EVENTS = [...EVENTS_DAY1, ...EVENTS_DAY2];
+
 export default function App() {
-  const [user, setUser] = useState(null);
-  const [currentView, setCurrentView] = useState('home'); // home, form, confirm, success, admin_login, admin_dashboard
-  const [eventStatus, setEventStatus] = useState({}); // { eventId: { isOpen: boolean, count: number } }
-  const [formData, setFormData] = useState(getInitialFormData());
+  const [view, setView] = useState('home');
   const [isAdminAuth, setIsAdminAuth] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-
-  // Initialize Auth - 固定された認証処理（トークン必須）
-  useEffect(() => {
-    const initAuth = async () => {
-      try {
-        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-          await signInWithCustomToken(auth, __initial_auth_token);
-        } else {
-          await signInAnonymously(auth);
-        }
-      } catch (error) {
-        console.error("Auth Error:", error);
-      }
-    };
-    initAuth();
-    
-    const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setIsLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // Fetch Event Status (Public)
-  useEffect(() => {
-    if (!user) return; // 認証完了後にのみデータ取得を実行
-
-    const statusRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'status');
-    const unsubscribe = onSnapshot(statusRef, (docSnap) => {
-      if (docSnap.exists()) {
-        setEventStatus(docSnap.data());
-      } else {
-        // Initialize if not exists
-        const initialStatus = {};
-        ALL_EVENTS.forEach(e => {
-          initialStatus[e.id] = { isOpen: true, count: 0 };
-        });
-        setDoc(statusRef, initialStatus).catch(e => console.error("Initial doc set error:", e));
-        setEventStatus(initialStatus);
-      }
-    }, (error) => {
-      console.error("Snapshot error:", error);
-    });
-    
-    return () => unsubscribe();
-  }, [user]);
-
-  function getInitialFormData() {
-    return {
-      teamName: '',
-      repLastName: '',
-      repFirstName: '',
-      email: '',
-      phone: '',
-      players: [getInitialPlayer()]
-    };
-  }
-
-  function getInitialPlayer() {
-    return {
-      id: crypto.randomUUID(),
-      lastName: '',
-      firstName: '',
-      lastNameKana: '',
-      firstNameKana: '',
-      gradeOrAge: '',
-      events: [],
-      achievements: ''
-    };
-  }
-
-  const handleStartRegistration = () => {
-    setFormData(getInitialFormData());
-    setCurrentView('form');
-  };
-
-  const handleSubmitForm = (data) => {
-    setFormData(data);
-    setCurrentView('confirm');
-  };
-
-  const handleConfirmSubmit = async () => {
-    if (!user) return;
-    setIsLoading(true);
-    try {
-      // 1. Save Registration Data
-      const registrationsRef = collection(db, 'artifacts', appId, 'public', 'data', 'registrations');
-      await addDoc(registrationsRef, {
-        ...formData,
-        userId: user.uid,
-        createdAt: serverTimestamp()
-      });
-
-      // 2. Update Event Counts
-      const statusRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'status');
-      const newStatus = { ...eventStatus };
-      formData.players.forEach(player => {
-        player.events.forEach(eventId => {
-          if (newStatus[eventId]) {
-            newStatus[eventId].count = (newStatus[eventId].count || 0) + 1;
-          }
-        });
-      });
-      await setDoc(statusRef, newStatus, { merge: true });
-
-      setCurrentView('success');
-    } catch (error) {
-      console.error("Submit Error:", error);
-      alert("申込の保存に失敗しました。時間をおいて再度お試しください。");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // --- Render Views ---
-  if (isLoading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div></div>;
-
-  return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-800 selection:bg-blue-200">
-      <Header currentView={currentView} setCurrentView={setCurrentView} isAdminAuth={isAdminAuth} setIsAdminAuth={setIsAdminAuth} />
-      
-      <main className="max-w-4xl mx-auto p-4 md:p-6 pb-24">
-        {currentView === 'home' && (
-          <HomeView onStart={handleStartRegistration} eventStatus={eventStatus} />
-        )}
-        {currentView === 'form' && (
-          <RegistrationForm 
-            initialData={formData} 
-            onSubmit={handleSubmitForm} 
-            onCancel={() => setCurrentView('home')} 
-            eventStatus={eventStatus}
-          />
-        )}
-        {currentView === 'confirm' && (
-          <ConfirmView 
-            data={formData} 
-            onBack={() => setCurrentView('form')} 
-            onSubmit={handleConfirmSubmit} 
-            eventStatus={eventStatus}
-          />
-        )}
-        {currentView === 'success' && (
-          <SuccessView onHome={() => setCurrentView('home')} />
-        )}
-        {currentView === 'admin_login' && (
-          <AdminLogin onLogin={() => { setIsAdminAuth(true); setCurrentView('admin_dashboard'); }} onBack={() => setCurrentView('home')} />
-        )}
-        {currentView === 'admin_dashboard' && isAdminAuth && (
-          <AdminDashboard eventStatus={eventStatus} user={user} />
-        )}
-      </main>
-    </div>
-  );
-}
-
-// --- Components ---
-
-function Header({ currentView, setCurrentView, isAdminAuth, setIsAdminAuth }) {
-  const goHome = () => setCurrentView('home');
-  const goAdmin = () => isAdminAuth ? setCurrentView('admin_dashboard') : setCurrentView('admin_login');
-
-  return (
-    <header className="bg-blue-800 text-white shadow-md">
-      <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
-        <h1 className="text-xl md:text-2xl font-bold cursor-pointer hover:text-blue-200 transition" onClick={goHome}>
-          第５回あべはんカップ卓球大会
-        </h1>
-        <div>
-          {currentView.startsWith('admin') ? (
-            <button onClick={goHome} className="flex items-center text-sm bg-blue-700 hover:bg-blue-600 px-3 py-1.5 rounded">
-              <LogOut className="w-4 h-4 mr-1" /> 一般画面へ
-            </button>
-          ) : (
-            <button onClick={goAdmin} className="text-sm text-blue-200 hover:text-white underline underline-offset-2">
-              管理者用
-            </button>
-          )}
-        </div>
-      </div>
-    </header>
-  );
-}
-
-function HomeView({ onStart, eventStatus }) {
-  return (
-    <div className="space-y-8 animate-fade-in">
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
-        <h2 className="text-2xl font-bold text-center text-blue-900 mb-6 border-b-2 border-blue-100 pb-4">大会概要</h2>
-        <div className="grid md:grid-cols-2 gap-6 text-lg">
-          <div>
-            <p className="font-semibold text-slate-500 text-sm">開催日</p>
-            <p className="mb-4">2026年5月23日（土）、24日（日）</p>
-            <p className="font-semibold text-slate-500 text-sm">会場</p>
-            <p>二戸市総合スポーツセンター</p>
-          </div>
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <h3 className="font-bold text-blue-800 mb-2 flex items-center"><AlertCircle className="w-5 h-5 mr-1" /> 参加ルール</h3>
-            <p className="text-sm">同日の種目に重複して参加することはできません。別日（土曜と日曜）の種目にはそれぞれ参加可能です。</p>
-          </div>
-        </div>
-      </section>
-
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
-        <h2 className="text-2xl font-bold text-center text-blue-900 mb-6 border-b-2 border-blue-100 pb-4">種目一覧と申込状況</h2>
-        
-        <div className="grid md:grid-cols-2 gap-8">
-          {/* Day 1 */}
-          <div>
-            <h3 className="text-xl font-bold text-slate-700 mb-4 flex items-center">
-              <span className="bg-blue-600 text-white text-sm px-2 py-1 rounded mr-2">23日(土)</span>
-              競技種目
-            </h3>
-            <ul className="space-y-3">
-              {EVENTS.DAY1.map(event => (
-                <EventStatusItem key={event.id} event={event} status={eventStatus[event.id]} />
-              ))}
-            </ul>
-          </div>
-          {/* Day 2 */}
-          <div>
-            <h3 className="text-xl font-bold text-slate-700 mb-4 flex items-center">
-              <span className="bg-orange-500 text-white text-sm px-2 py-1 rounded mr-2">24日(日)</span>
-              競技種目
-            </h3>
-            <ul className="space-y-3">
-              {EVENTS.DAY2.map(event => (
-                <EventStatusItem key={event.id} event={event} status={eventStatus[event.id]} />
-              ))}
-            </ul>
-          </div>
-        </div>
-      </section>
-
-      <div className="text-center pt-4 pb-8">
-        <button 
-          onClick={onStart}
-          className="bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold py-4 px-12 rounded-full shadow-lg transform transition hover:scale-105 active:scale-95 flex items-center mx-auto"
-        >
-          <ClipboardList className="mr-2 w-6 h-6" />
-          参加申込をする
-        </button>
-        <p className="mt-4 text-slate-500">※会員登録やログインは不要です</p>
-      </div>
-    </div>
-  );
-}
-
-function EventStatusItem({ event, status }) {
-  const isOpen = status?.isOpen !== false;
-  const count = status?.count || 0;
-
-  return (
-    <li className="flex justify-between items-center bg-slate-50 p-3 rounded border border-slate-100">
-      <span className="font-medium">{event.name}</span>
-      <div className="text-right">
-        {isOpen ? (
-          <span className="text-blue-700 font-bold bg-blue-100 px-3 py-1 rounded-full text-sm">
-            申込 {count} 名
-          </span>
-        ) : (
-          <span className="text-red-600 font-bold bg-red-100 px-3 py-1 rounded-full text-sm">
-            受付終了
-          </span>
-        )}
-      </div>
-    </li>
-  );
-}
-
-
-function RegistrationForm({ initialData, onSubmit, onCancel, eventStatus }) {
-  const [data, setData] = useState(initialData);
-  const [errors, setErrors] = useState({});
-
-  const handleRepChange = (e) => {
-    const { name, value } = e.target;
-    setData(prev => ({ ...prev, [name]: value }));
-  };
-
-  const addPlayer = () => {
-    setData(prev => ({
-      ...prev,
-      players: [...prev.players, {
-        id: crypto.randomUUID(),
-        lastName: '', firstName: '', lastNameKana: '', firstNameKana: '',
-        gradeOrAge: '', events: [], achievements: ''
-      }]
-    }));
-  };
-
-  const removePlayer = (id) => {
-    if (data.players.length === 1) return;
-    setData(prev => ({
-      ...prev,
-      players: prev.players.filter(p => p.id !== id)
-    }));
-  };
-
-  const updatePlayer = (id, field, value) => {
-    setData(prev => ({
-      ...prev,
-      players: prev.players.map(p => p.id === id ? { ...p, [field]: value } : p)
-    }));
-  };
-
-  const validate = () => {
-    const newErrors = {};
-    if (!data.teamName.trim()) newErrors.teamName = '必須項目です';
-    if (!data.repLastName.trim()) newErrors.repLastName = '必須項目です';
-    if (!data.repFirstName.trim()) newErrors.repFirstName = '必須項目です';
-    if (!data.email.trim() || !/^\S+@\S+\.\S+$/.test(data.email)) newErrors.email = '有効なメールアドレスを入力してください';
-    if (!data.phone.trim()) newErrors.phone = '必須項目です';
-
-    data.players.forEach((p, index) => {
-      if (!p.lastName.trim()) newErrors[`p_${index}_lastName`] = '必須';
-      if (!p.firstName.trim()) newErrors[`p_${index}_firstName`] = '必須';
-      if (!p.lastNameKana.trim()) newErrors[`p_${index}_lastNameKana`] = '必須';
-      if (!p.firstNameKana.trim()) newErrors[`p_${index}_firstNameKana`] = '必須';
-      if (!p.gradeOrAge.trim()) newErrors[`p_${index}_gradeOrAge`] = '必須';
-      if (p.events.length === 0) newErrors[`p_${index}_events`] = '少なくとも1つの種目を選択してください';
-    });
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const handleNext = () => {
-    if (validate()) {
-      onSubmit(data);
-    } else {
-      alert("入力内容に不備があります。赤字のエラーメッセージを確認してください。");
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  return (
-    <div className="space-y-8 pb-20 animate-fade-in">
-      {/* Representative Info */}
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
-        <h2 className="text-xl font-bold text-blue-900 mb-6 flex items-center border-b pb-2">
-          <Users className="mr-2" /> チーム・代表者情報
-        </h2>
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="md:col-span-2">
-            <Label text="チーム名" required />
-            <input type="text" name="teamName" value={data.teamName} onChange={handleRepChange} className="form-input w-full" placeholder="例: あべはん卓球クラブ" />
-            {errors.teamName && <p className="text-red-500 text-sm mt-1">{errors.teamName}</p>}
-          </div>
-          
-          <div>
-            <Label text="代表者 姓" required />
-            <input type="text" name="repLastName" value={data.repLastName} onChange={handleRepChange} className="form-input w-full" placeholder="例: 山田" />
-            {errors.repLastName && <p className="text-red-500 text-sm mt-1">{errors.repLastName}</p>}
-          </div>
-          <div>
-            <Label text="代表者 名" required />
-            <input type="text" name="repFirstName" value={data.repFirstName} onChange={handleRepChange} className="form-input w-full" placeholder="例: 太郎" />
-            {errors.repFirstName && <p className="text-red-500 text-sm mt-1">{errors.repFirstName}</p>}
-          </div>
-
-          <div>
-            <Label text="メールアドレス" required />
-            <input type="email" name="email" value={data.email} onChange={handleRepChange} className="form-input w-full" placeholder="例: mail@example.com" />
-            {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
-          </div>
-          <div>
-            <Label text="電話番号" required />
-            <input type="tel" name="phone" value={data.phone} onChange={handleRepChange} className="form-input w-full" placeholder="例: 090-1234-5678" />
-            {errors.phone && <p className="text-red-500 text-sm mt-1">{errors.phone}</p>}
-          </div>
-        </div>
-      </section>
-
-      {/* Players List */}
-      <div className="space-y-6">
-        {data.players.map((player, index) => (
-          <PlayerFormCard 
-            key={player.id}
-            player={player}
-            index={index}
-            totalPlayers={data.players.length}
-            updatePlayer={updatePlayer}
-            removePlayer={removePlayer}
-            errors={errors}
-            eventStatus={eventStatus}
-          />
-        ))}
-      </div>
-
-      <button 
-        onClick={addPlayer}
-        className="w-full py-4 border-2 border-dashed border-blue-400 text-blue-600 rounded-xl hover:bg-blue-50 font-bold flex items-center justify-center transition"
-      >
-        <UserPlus className="mr-2" />
-        参加選手を追加する
-      </button>
-
-      {/* Fixed Bottom Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-50">
-        <div className="max-w-4xl mx-auto flex justify-between">
-          <button onClick={onCancel} className="px-6 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-lg transition">
-            キャンセル
-          </button>
-          <button onClick={handleNext} className="bg-blue-600 hover:bg-blue-700 text-white px-8 py-3 rounded-lg font-bold flex items-center transition shadow-md">
-            入力内容を確認する <ChevronRight className="ml-1" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function PlayerFormCard({ player, index, totalPlayers, updatePlayer, removePlayer, errors, eventStatus }) {
-  const handleChange = (e) => {
-    updatePlayer(player.id, e.target.name, e.target.value);
-  };
-
-  const handleEventToggle = (eventId, day) => {
-    let newEvents = [...player.events];
-    
-    // Check duplication for the same day
-    const isSelecting = !newEvents.includes(eventId);
-    if (isSelecting) {
-      // Find events already selected for this day
-      const eventsOnSameDay = newEvents.filter(eId => {
-        const ev = ALL_EVENTS.find(e => e.id === eId);
-        return ev && ev.day === day;
-      });
-
-      if (eventsOnSameDay.length > 0) {
-        alert("同日の種目に重複して参加することはできません。");
-        return; // Prevent selection
-      }
-      newEvents.push(eventId);
-    } else {
-      newEvents = newEvents.filter(id => id !== eventId);
-    }
-    updatePlayer(player.id, 'events', newEvents);
-  };
-
-  return (
-    <section className="bg-white rounded-xl shadow-sm border border-blue-200 overflow-hidden">
-      <div className="bg-blue-50 px-6 py-4 border-b border-blue-100 flex justify-between items-center">
-        <h3 className="font-bold text-blue-900 text-lg">選手 {index + 1}</h3>
-        {totalPlayers > 1 && (
-          <button onClick={() => removePlayer(player.id)} className="text-red-500 hover:bg-red-50 px-3 py-1 rounded text-sm flex items-center transition">
-            <Trash2 className="w-4 h-4 mr-1" /> 削除
-          </button>
-        )}
-      </div>
-      
-      <div className="p-6 md:p-8 space-y-6">
-        <div className="grid md:grid-cols-2 gap-4">
-          <div>
-            <Label text="姓" required />
-            <input type="text" name="lastName" value={player.lastName} onChange={handleChange} className="form-input w-full" placeholder="例: 佐藤" />
-            {errors[`p_${index}_lastName`] && <p className="text-red-500 text-sm mt-1">{errors[`p_${index}_lastName`]}</p>}
-          </div>
-          <div>
-            <Label text="名" required />
-            <input type="text" name="firstName" value={player.firstName} onChange={handleChange} className="form-input w-full" placeholder="例: 次郎" />
-            {errors[`p_${index}_firstName`] && <p className="text-red-500 text-sm mt-1">{errors[`p_${index}_firstName`]}</p>}
-          </div>
-          <div>
-            <Label text="姓（ふりがな）" required />
-            <input type="text" name="lastNameKana" value={player.lastNameKana} onChange={handleChange} className="form-input w-full" placeholder="例: さとう" />
-            {errors[`p_${index}_lastNameKana`] && <p className="text-red-500 text-sm mt-1">{errors[`p_${index}_lastNameKana`]}</p>}
-          </div>
-          <div>
-            <Label text="名（ふりがな）" required />
-            <input type="text" name="firstNameKana" value={player.firstNameKana} onChange={handleChange} className="form-input w-full" placeholder="例: じろう" />
-            {errors[`p_${index}_firstNameKana`] && <p className="text-red-500 text-sm mt-1">{errors[`p_${index}_firstNameKana`]}</p>}
-          </div>
-          <div className="md:col-span-2">
-            <Label text="学年または年齢" required />
-            <input type="text" name="gradeOrAge" value={player.gradeOrAge} onChange={handleChange} className="form-input w-full md:w-1/2" placeholder="例: 中学2年、一般(35歳)" />
-            {errors[`p_${index}_gradeOrAge`] && <p className="text-red-500 text-sm mt-1">{errors[`p_${index}_gradeOrAge`]}</p>}
-          </div>
-        </div>
-
-        <div className="border-t border-slate-100 pt-6">
-          <Label text="参加種目（別日であれば複数選択可）" required />
-          {errors[`p_${index}_events`] && <p className="text-red-500 text-sm mb-2">{errors[`p_${index}_events`]}</p>}
-          
-          <div className="grid md:grid-cols-2 gap-6 mt-3">
-            {/* Day 1 Selection */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h4 className="font-bold text-slate-700 mb-3"><span className="bg-blue-600 text-white text-xs px-2 py-1 rounded mr-2">23日(土)</span></h4>
-              <div className="space-y-2">
-                {EVENTS.DAY1.map(ev => {
-                  const isClosed = eventStatus[ev.id]?.isOpen === false;
-                  const isChecked = player.events.includes(ev.id);
-                  const isOtherSelected = !isChecked && player.events.some(id => EVENTS.DAY1.find(e => e.id === id));
-                  const disabled = isClosed || isOtherSelected;
-
-                  return (
-                    <label key={ev.id} className={`flex items-start p-2 rounded cursor-pointer transition ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-100'} ${isChecked ? 'bg-blue-100 border-blue-300 border' : 'border border-transparent'}`}>
-                      <input 
-                        type="checkbox" 
-                        className="mt-1 w-5 h-5 text-blue-600 rounded focus:ring-blue-500 cursor-pointer"
-                        checked={isChecked}
-                        disabled={disabled}
-                        onChange={() => handleEventToggle(ev.id, 1)}
-                      />
-                      <span className="ml-3 select-none flex-1">
-                        <span className="block font-medium">{ev.name}</span>
-                        {isClosed && <span className="text-xs text-red-600 font-bold">受付終了</span>}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Day 2 Selection */}
-            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200">
-              <h4 className="font-bold text-slate-700 mb-3"><span className="bg-orange-500 text-white text-xs px-2 py-1 rounded mr-2">24日(日)</span></h4>
-              <div className="space-y-2">
-                {EVENTS.DAY2.map(ev => {
-                  const isClosed = eventStatus[ev.id]?.isOpen === false;
-                  const isChecked = player.events.includes(ev.id);
-                  const isOtherSelected = !isChecked && player.events.some(id => EVENTS.DAY2.find(e => e.id === id));
-                  const disabled = isClosed || isOtherSelected;
-
-                  return (
-                    <label key={ev.id} className={`flex items-start p-2 rounded cursor-pointer transition ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-orange-100'} ${isChecked ? 'bg-orange-100 border-orange-300 border' : 'border border-transparent'}`}>
-                      <input 
-                        type="checkbox" 
-                        className="mt-1 w-5 h-5 text-orange-600 rounded focus:ring-orange-500 cursor-pointer"
-                        checked={isChecked}
-                        disabled={disabled}
-                        onChange={() => handleEventToggle(ev.id, 2)}
-                      />
-                      <span className="ml-3 select-none flex-1">
-                        <span className="block font-medium">{ev.name}</span>
-                        {isClosed && <span className="text-xs text-red-600 font-bold">受付終了</span>}
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="border-t border-slate-100 pt-6">
-          <Label text="大会成績（任意）" />
-          <p className="text-sm text-slate-500 mb-2">※過去の主な戦績、ランキング等があれば組み合わせの参考にします。</p>
-          <textarea 
-            name="achievements" 
-            value={player.achievements} 
-            onChange={handleChange} 
-            className="form-input w-full h-24" 
-            placeholder="例: 令和5年度 県大会ベスト8"
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function Label({ text, required }) {
-  return (
-    <label className="block font-bold text-slate-700 mb-2">
-      {text}
-      {required && <span className="ml-2 text-xs bg-red-500 text-white px-2 py-0.5 rounded">必須</span>}
-    </label>
-  );
-}
-
-function ConfirmView({ data, onBack, onSubmit, eventStatus }) {
+  const [passwordInput, setPasswordInput] = useState('');
+  const [loginError, setLoginError] = useState(false);
   
-  const getEventName = (id) => ALL_EVENTS.find(e => e.id === id)?.name || id;
-
-  // Check if any selected event is closed
-  const hasClosedEvent = data.players.some(p => p.events.some(eId => eventStatus[eId]?.isOpen === false));
-
-  return (
-    <div className="space-y-8 pb-20 animate-fade-in">
-      <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4 rounded text-yellow-800">
-        <p className="font-bold flex items-center"><AlertCircle className="w-5 h-5 mr-2"/> まだ申込は完了していません</p>
-        <p className="text-sm mt-1">入力内容を確認し、ページ下部の「申込を完了する」ボタンを押してください。</p>
-      </div>
-
-      <section className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 md:p-8">
-        <h2 className="text-xl font-bold text-blue-900 mb-4 border-b pb-2">チーム・代表者情報</h2>
-        <dl className="grid grid-cols-1 md:grid-cols-3 gap-y-4 gap-x-6 text-lg">
-          <div className="md:col-span-3">
-            <dt className="text-sm text-slate-500">チーム名</dt>
-            <dd className="font-semibold">{data.teamName}</dd>
-          </div>
-          <div>
-            <dt className="text-sm text-slate-500">代表者氏名</dt>
-            <dd className="font-semibold">{data.repLastName} {data.repFirstName}</dd>
-          </div>
-          <div>
-            <dt className="text-sm text-slate-500">メールアドレス</dt>
-            <dd className="font-semibold">{data.email}</dd>
-          </div>
-          <div>
-            <dt className="text-sm text-slate-500">電話番号</dt>
-            <dd className="font-semibold">{data.phone}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <div className="space-y-4">
-        <h2 className="text-xl font-bold text-blue-900 ml-2">参加選手（{data.players.length}名）</h2>
-        {data.players.map((player, index) => (
-          <section key={player.id} className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-            <h3 className="font-bold text-slate-700 bg-slate-100 px-3 py-1 rounded inline-block mb-4">選手 {index + 1}</h3>
-            <dl className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-6">
-              <div>
-                <dt className="text-sm text-slate-500">氏名</dt>
-                <dd className="font-semibold text-lg">{player.lastName} {player.firstName} <span className="text-sm text-slate-500 ml-2">({player.lastNameKana} {player.firstNameKana})</span></dd>
-              </div>
-              <div>
-                <dt className="text-sm text-slate-500">学年・年齢</dt>
-                <dd className="font-semibold">{player.gradeOrAge}</dd>
-              </div>
-              <div className="md:col-span-2">
-                <dt className="text-sm text-slate-500">参加種目</dt>
-                <dd className="font-semibold">
-                  <ul className="list-disc list-inside mt-1 space-y-1">
-                    {player.events.map(eId => (
-                      <li key={eId} className="text-blue-800">
-                        {getEventName(eId)}
-                        {eventStatus[eId]?.isOpen === false && <span className="text-red-500 text-sm ml-2 font-bold">※現在受付終了しています</span>}
-                      </li>
-                    ))}
-                  </ul>
-                </dd>
-              </div>
-              {player.achievements && (
-                <div className="md:col-span-2">
-                  <dt className="text-sm text-slate-500">大会成績</dt>
-                  <dd className="whitespace-pre-wrap text-sm">{player.achievements}</dd>
-                </div>
-              )}
-            </dl>
-          </section>
-        ))}
-      </div>
-
-      {hasClosedEvent && (
-        <div className="bg-red-50 text-red-700 p-4 rounded font-bold border border-red-200">
-          受付終了している種目が含まれています。入力画面に戻って種目を変更してください。
-        </div>
-      )}
-
-      {/* Fixed Bottom Action Bar */}
-      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 p-4 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.1)] z-50">
-        <div className="max-w-4xl mx-auto flex justify-between">
-          <button onClick={onBack} className="px-6 py-3 text-slate-600 font-bold hover:bg-slate-100 rounded-lg transition flex items-center">
-            <ChevronLeft className="mr-1" /> 修正する
-          </button>
-          <button 
-            onClick={onSubmit} 
-            disabled={hasClosedEvent}
-            className={`px-8 py-3 rounded-lg font-bold flex items-center shadow-md transition ${hasClosedEvent ? 'bg-slate-400 cursor-not-allowed text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}
-          >
-            申込を完了する <CheckCircle className="ml-2 w-5 h-5" />
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SuccessView({ onHome }) {
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-green-200 p-8 md:p-12 text-center animate-fade-in">
-      <div className="flex justify-center mb-6">
-        <CheckCircle className="w-20 h-20 text-green-500" />
-      </div>
-      <h2 className="text-3xl font-bold text-slate-800 mb-4">申込が完了しました</h2>
-      <p className="text-lg text-slate-600 mb-8">
-        ご登録いただいた代表者様のメールアドレス宛に確認メール（自動送信ではありませんのでお待ちください）をお送りする場合があります。<br/>
-        大会当日のご参加を心よりお待ちしております。
-      </p>
-      <button 
-        onClick={onHome}
-        className="bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 px-8 rounded-lg transition"
-      >
-        トップページへ戻る
-      </button>
-    </div>
-  );
-}
-
-// --- Admin Components ---
-
-function AdminLogin({ onLogin, onBack }) {
-  const [pwd, setPwd] = useState('');
-  const [error, setError] = useState('');
-
-  const handleLogin = (e) => {
-    e.preventDefault();
-    if (pwd === ADMIN_PASSWORD) {
-      onLogin();
-    } else {
-      setError('パスワードが間違っています');
+  // アプリの状態
+  const [applications, setApplications] = useState([
+    {
+      id: 'app_1740000000000',
+      teamName: 'あべはん本社クラブ',
+      repName: '高橋 順平',
+      email: 'takanohashi-junpei@abehan.co.jp',
+      phone: '0195-23-2111',
+      players: [
+        { id: 'p_1', lastName: '高橋', firstName: '順平', lastNameKana: 'たかのはし', firstNameKana: 'じゅんぺい', ageOrGrade: '一般', event23: '', event24: 'd2_3', record: '前回ベスト8' }
+      ],
+      createdAt: new Date().toISOString()
     }
-  };
-
-  return (
-    <div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-xl shadow-md border border-slate-200">
-      <h2 className="text-2xl font-bold text-center mb-6">管理者ログイン</h2>
-      <form onSubmit={handleLogin} className="space-y-4">
-        <div>
-          <label className="block text-sm font-bold text-slate-700 mb-1">パスワード</label>
-          <input 
-            type="password" 
-            value={pwd} 
-            onChange={(e) => setPwd(e.target.value)} 
-            className="form-input w-full"
-            placeholder="パスワードを入力"
-            autoFocus
-          />
-          {error && <p className="text-red-500 text-sm mt-1">{error}</p>}
-        </div>
-        <button type="submit" className="w-full bg-slate-800 text-white font-bold py-3 rounded-lg hover:bg-slate-900 transition">
-          ログイン
-        </button>
-      </form>
-      <div className="mt-6 text-center">
-        <button onClick={onBack} className="text-slate-500 hover:underline text-sm">一般画面へ戻る</button>
-      </div>
-    </div>
+  ]);
+  
+  // 種目ごとの「受付中/停止」ステータス管理
+  const [eventSettings, setEventSettings] = useState(
+    ALL_EVENTS.reduce((acc, event) => ({ ...acc, [event.id]: true }), {})
   );
-}
 
-function AdminDashboard({ eventStatus, user }) {
-  const [activeTab, setActiveTab] = useState('list'); // list, settings
-  const [registrations, setRegistrations] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // 種目別集計
+  const [eventsStats, setEventsStats] = useState(
+    ALL_EVENTS.reduce((acc, event) => ({ ...acc, [event.id]: 0 }), {})
+  );
 
+  const [currentFormData, setCurrentFormData] = useState(null);
+  const [editingAppId, setEditingAppId] = useState(null);
+
+  // 統計更新
   useEffect(() => {
-    if (!user) return; // 認証情報を確認してからデータ取得を実行
-    
-    const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'registrations'));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = [];
-      snapshot.forEach(doc => {
-        data.push({ id: doc.id, ...doc.data() });
+    const stats = ALL_EVENTS.reduce((acc, event) => ({ ...acc, [event.id]: 0 }), {});
+    applications.forEach(app => {
+      app.players.forEach(p => {
+        if (p.event23) stats[p.event23]++;
+        if (p.event24) stats[p.event24]++;
       });
-      // Sort by createdAt descending
-      data.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis() || 0;
-        const timeB = b.createdAt?.toMillis() || 0;
-        return timeB - timeA;
-      });
-      setRegistrations(data);
-      setLoading(false);
-    }, (error) => {
-      console.error("Admin fetch error:", error);
-      setLoading(false);
     });
-    
-    return () => unsubscribe();
-  }, [user]);
+    setEventsStats(stats);
+  }, [applications]);
 
-  const toggleEventStatus = async (eventId) => {
-    const current = eventStatus[eventId]?.isOpen !== false;
-    const statusRef = doc(db, 'artifacts', appId, 'public', 'data', 'config', 'status');
-    try {
-      await setDoc(statusRef, {
-        [eventId]: { isOpen: !current }
-      }, { merge: true });
-    } catch (err) {
-      console.error(err);
-      alert("更新に失敗しました");
+  const getEventName = (id) => ALL_EVENTS.find(e => e.id === id)?.name || '';
+
+  // ログイン処理
+  const handleLogin = () => {
+    if (passwordInput === TOURNAMENT_INFO.adminPassword || passwordInput === 'admin') {
+      setIsAdminAuth(true);
+      setView('adminDashboard');
+      setLoginError(false);
+      setPasswordInput('');
+    } else {
+      setLoginError(true);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (window.confirm("この申込データを削除しますか？\n※削除したデータは復元できません。\n※種目の申込数は自動では減少しません。")) {
-      try {
-        await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'registrations', id));
-      } catch (err) {
-        alert("削除に失敗しました");
-      }
+  const saveApplication = (data) => {
+    if (editingAppId) {
+      setApplications(prev => prev.map(app => app.id === editingAppId ? { ...data, id: app.id, createdAt: app.createdAt } : app));
+    } else {
+      const newId = `app_${Date.now()}`;
+      setApplications(prev => [...prev, { ...data, id: newId, createdAt: new Date().toISOString() }]);
+    }
+    setEditingAppId(null);
+    setCurrentFormData(null);
+  };
+
+  const deleteApplication = (id) => {
+    if(window.confirm('この申込を削除してもよろしいですか？')) {
+      setApplications(prev => prev.filter(app => app.id !== id));
     }
   };
 
-  const exportCSV = () => {
-    // 1行1選手のフォーマットでエクスポート
-    const headers = [
-      "申込日時", "チーム名", "代表者姓", "代表者名", "代表者メール", "代表者電話",
-      "選手姓", "選手名", "選手姓かな", "選手名かな", "学年/年齢", 
-      "参加種目(23日)", "参加種目(24日)", "大会成績"
-    ];
+  const toggleEventStatus = (id) => {
+    setEventSettings(prev => ({ ...prev, [id]: !prev[id] }));
+  };
 
-    let csvContent = headers.join(',') + '\n';
-
-    registrations.forEach(reg => {
-      const date = reg.createdAt ? new Date(reg.createdAt.toMillis()).toLocaleString('ja-JP') : '';
-      
-      reg.players.forEach(p => {
-        // Group events by day
-        const day1Events = p.events.filter(eId => EVENTS.DAY1.some(e => e.id === eId)).map(id => ALL_EVENTS.find(e=>e.id===id)?.name).join(' / ');
-        const day2Events = p.events.filter(eId => EVENTS.DAY2.some(e => e.id === eId)).map(id => ALL_EVENTS.find(e=>e.id===id)?.name).join(' / ');
-
-        const row = [
-          `"${date}"`,
-          `"${reg.teamName}"`,
-          `"${reg.repLastName}"`,
-          `"${reg.repFirstName}"`,
-          `"${reg.email}"`,
-          `"${reg.phone}"`,
-          `"${p.lastName}"`,
-          `"${p.firstName}"`,
-          `"${p.lastNameKana}"`,
-          `"${p.firstNameKana}"`,
-          `"${p.gradeOrAge}"`,
-          `"${day1Events}"`,
-          `"${day2Events}"`,
-          `"${p.achievements ? p.achievements.replace(/\n/g, ' ') : ''}"`
-        ];
-        csvContent += row.join(',') + '\n';
-      });
-    });
-
-    // BOM for Excel compatibility
-    const bom = new Uint8Array([0xEF, 0xBB, 0xBF]);
-    const blob = new Blob([bom, csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute("download", `entry_list_${new Date().getTime()}.csv`);
-    document.body.appendChild(link);
+  const exportToCSV = () => {
+    const headers = ['申込ID', 'チーム名', '代表者', 'メール', '電話', '選手氏名', 'かな', '学年/年齢', '23日種目', '24日種目', '実績'];
+    const rows = applications.flatMap(app => 
+      app.players.map(p => [
+        app.id, app.teamName, app.repName, app.email, app.phone,
+        `${p.lastName} ${p.firstName}`, `${p.lastNameKana} ${p.firstNameKana}`, p.ageOrGrade,
+        getEventName(p.event23), getEventName(p.event24), p.record
+      ])
+    );
+    const csvContent = [headers.join(','), ...rows.map(r => r.map(c => `"${c}"`).join(','))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `abehan_cup_list.csv`;
     link.click();
-    document.body.removeChild(link);
   };
 
-  return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 min-h-[80vh]">
-      <div className="border-b border-slate-200 flex flex-wrap">
-        <button 
-          className={`px-6 py-4 font-bold flex items-center ${activeTab === 'list' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          onClick={() => setActiveTab('list')}
+  // --- Views ---
+
+  const HomeView = () => (
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-700">
+      <div className="bg-gradient-to-br from-blue-700 to-blue-900 rounded-3xl shadow-2xl p-8 sm:p-12 text-center text-white border-b-8 border-blue-900">
+        <h1 className="text-3xl sm:text-5xl font-black mb-4 tracking-tighter italic">{TOURNAMENT_INFO.name}</h1>
+        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 text-blue-100 mb-10 font-bold">
+          <span className="flex items-center bg-white/10 px-4 py-2 rounded-full"><Calendar size={20} className="mr-2" /> {TOURNAMENT_INFO.dates}</span>
+          <span className="flex items-center bg-white/10 px-4 py-2 rounded-full">{TOURNAMENT_INFO.location}</span>
+        </div>
+        <button
+          onClick={() => { setCurrentFormData(null); setEditingAppId(null); setView('form'); }}
+          className="bg-yellow-400 hover:bg-yellow-300 text-blue-900 font-black py-5 px-16 rounded-2xl text-2xl shadow-xl transform transition hover:scale-105 active:scale-95 flex items-center justify-center mx-auto"
         >
-          <ClipboardList className="w-5 h-5 mr-2"/> 申込データ一覧
-        </button>
-        <button 
-          className={`px-6 py-4 font-bold flex items-center ${activeTab === 'settings' ? 'text-blue-600 border-b-2 border-blue-600' : 'text-slate-500 hover:bg-slate-50'}`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Settings className="w-5 h-5 mr-2"/> 種目設定・受付停止
+          参加を申し込む <ChevronRight size={28} className="ml-2" />
         </button>
       </div>
 
-      <div className="p-6">
-        {activeTab === 'list' && (
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">全申込数: {registrations.length} 件</h3>
-              <button onClick={exportCSV} className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center text-sm font-bold shadow-sm">
-                <Download className="w-4 h-4 mr-2" /> CSV(Excel)出力
+      <div className="bg-white rounded-3xl shadow-xl p-6 sm:p-10">
+        <h2 className="text-2xl font-black text-gray-800 mb-8 flex items-center border-l-8 border-blue-600 pl-4">
+          現在のエントリー状況
+        </h2>
+        <div className="grid sm:grid-cols-2 gap-8">
+          <div className="space-y-4">
+            <h3 className="font-black text-blue-700 flex items-center bg-blue-50 p-3 rounded-xl justify-center">5月23日（土）</h3>
+            {EVENTS_DAY1.map(e => (
+              <div key={e.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <span className="font-bold text-gray-700">{e.name}</span>
+                <div className="flex items-center gap-3">
+                  <span className="bg-white border-2 border-blue-600 text-blue-700 font-black px-4 py-1 rounded-full text-sm">{eventsStats[e.id]} 名</span>
+                  {!eventSettings[e.id] && <span className="bg-red-500 text-white text-[10px] px-2 py-1 rounded font-black">締切</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="space-y-4">
+            <h3 className="font-black text-green-700 flex items-center bg-green-50 p-3 rounded-xl justify-center">5月24日（日）</h3>
+            {EVENTS_DAY2.map(e => (
+              <div key={e.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border border-gray-100">
+                <span className="font-bold text-gray-700">{e.name}</span>
+                <div className="flex items-center gap-3">
+                  <span className="bg-white border-2 border-green-600 text-green-700 font-black px-4 py-1 rounded-full text-sm">{eventsStats[e.id]} 名</span>
+                  {!eventSettings[e.id] && <span className="bg-red-500 text-white text-[10px] px-2 py-1 rounded font-black">締切</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  const ApplicationFormView = () => {
+    const [formData, setFormData] = useState(currentFormData || {
+      teamName: '', repName: '', email: '', phone: '',
+      players: [{ id: Date.now().toString(), lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', ageOrGrade: '', event23: '', event24: '', record: '' }]
+    });
+
+    const updatePlayer = (id, field, value) => {
+      setFormData({ ...formData, players: formData.players.map(p => p.id === id ? { ...p, [field]: value } : p) });
+    };
+
+    const addPlayer = () => {
+      setFormData({
+        ...formData, 
+        players: [...formData.players, { id: Date.now().toString(), lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', ageOrGrade: '', event23: '', event24: '', record: '' }]
+      });
+    };
+
+    return (
+      <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-2xl p-6 sm:p-10 animate-in fade-in zoom-in duration-300">
+        <h2 className="text-3xl font-black text-gray-800 mb-10 border-b-4 border-gray-100 pb-6 flex items-center">
+          参加申込フォーム
+          <span className="ml-auto text-sm font-bold bg-blue-600 text-white px-4 py-1 rounded-full">入力中</span>
+        </h2>
+        
+        <form onSubmit={(e) => { e.preventDefault(); setCurrentFormData(formData); setView('confirm'); }} className="space-y-12">
+          {/* 代表者情報 */}
+          <div className="bg-gray-50 p-8 rounded-3xl border-2 border-dashed border-gray-200">
+            <h3 className="text-xl font-bold text-gray-700 mb-6 flex items-center"><Mail className="mr-2 text-blue-600"/> 代表者・連絡先</h3>
+            <div className="grid sm:grid-cols-2 gap-6">
+              <input required className="p-4 rounded-xl border-2 border-gray-200 focus:border-blue-600 outline-none transition-all font-bold" placeholder="チーム名・学校名" value={formData.teamName} onChange={e => setFormData({...formData, teamName: e.target.value})} />
+              <input required className="p-4 rounded-xl border-2 border-gray-200 focus:border-blue-600 outline-none transition-all font-bold" placeholder="申込者氏名" value={formData.repName} onChange={e => setFormData({...formData, repName: e.target.value})} />
+              <input required type="email" className="p-4 rounded-xl border-2 border-gray-200 focus:border-blue-600 outline-none transition-all font-bold" placeholder="メールアドレス" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+              <input required type="tel" className="p-4 rounded-xl border-2 border-gray-200 focus:border-blue-600 outline-none transition-all font-bold" placeholder="電話番号" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+            </div>
+          </div>
+
+          {/* 選手登録 */}
+          <div className="space-y-6">
+            <div className="flex justify-between items-center px-4">
+              <h3 className="text-xl font-black text-gray-800 flex items-center"><UserPlus className="mr-2 text-blue-600"/> 選手登録</h3>
+              <button type="button" onClick={addPlayer} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-6 rounded-xl flex items-center transition-all shadow-md">
+                <UserPlus size={18} className="mr-2"/> 選手を追加する
               </button>
             </div>
-            
-            {loading ? (
-              <p>読み込み中...</p>
-            ) : registrations.length === 0 ? (
-              <p className="text-slate-500">申込データはまだありません。</p>
-            ) : (
-              <div className="overflow-x-auto rounded border border-slate-200">
-                <table className="w-full text-sm text-left whitespace-nowrap">
-                  <thead className="bg-slate-100 text-slate-700">
-                    <tr>
-                      <th className="px-4 py-3 border-b">申込日時</th>
-                      <th className="px-4 py-3 border-b">チーム名</th>
-                      <th className="px-4 py-3 border-b">代表者</th>
-                      <th className="px-4 py-3 border-b">登録選手数</th>
-                      <th className="px-4 py-3 border-b text-center">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {registrations.map(reg => (
-                      <tr key={reg.id} className="border-b hover:bg-slate-50">
-                        <td className="px-4 py-3">{reg.createdAt ? new Date(reg.createdAt.toMillis()).toLocaleString('ja-JP') : '-'}</td>
-                        <td className="px-4 py-3 font-medium">{reg.teamName}</td>
-                        <td className="px-4 py-3">{reg.repLastName} {reg.repFirstName}</td>
-                        <td className="px-4 py-3">{reg.players?.length || 0} 名</td>
-                        <td className="px-4 py-3 text-center">
-                          <button onClick={() => alert("※このプレビュー環境では編集画面は省略されています。\n実運用ではモーダル等で編集フォームを開きます。")} className="text-blue-600 hover:bg-blue-100 p-1 rounded mr-2" title="編集">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(reg.id)} className="text-red-600 hover:bg-red-100 p-1 rounded" title="削除">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+
+            {formData.players.map((p, idx) => (
+              <div key={p.id} className="relative bg-white border-2 border-gray-100 rounded-3xl p-6 sm:p-8 shadow-sm hover:shadow-md transition-shadow">
+                <div className="absolute -top-4 -left-4 w-10 h-10 bg-gray-800 text-white rounded-xl flex items-center justify-center font-black shadow-lg">
+                  {idx + 1}
+                </div>
+                {formData.players.length > 1 && (
+                  <button type="button" onClick={() => setFormData({...formData, players: formData.players.filter(x => x.id !== p.id)})} className="absolute top-4 right-4 text-gray-300 hover:text-red-500 transition-colors">
+                    <Trash2 size={24} />
+                  </button>
+                )}
+                
+                <div className="grid sm:grid-cols-2 gap-6 mt-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <input required className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="姓" value={p.lastName} onChange={e => updatePlayer(p.id, 'lastName', e.target.value)} />
+                    <input required className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="名" value={p.firstName} onChange={e => updatePlayer(p.id, 'firstName', e.target.value)} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <input required className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="せい" value={p.lastNameKana} onChange={e => updatePlayer(p.id, 'lastNameKana', e.target.value)} />
+                    <input required className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="めい" value={p.firstNameKana} onChange={e => updatePlayer(p.id, 'firstNameKana', e.target.value)} />
+                  </div>
+                  <input required className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="学年または年齢（例：中2、45歳）" value={p.ageOrGrade} onChange={e => updatePlayer(p.id, 'ageOrGrade', e.target.value)} />
+                  <input className="p-3 bg-gray-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold" placeholder="大会実績・ランク（任意）" value={p.record} onChange={e => updatePlayer(p.id, 'record', e.target.value)} />
+                  
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-blue-700 ml-2 italic uppercase tracking-widest">Day 1: 5/23 種目</label>
+                    <select className="w-full p-3 bg-blue-50 rounded-xl border-2 border-transparent focus:border-blue-600 outline-none font-bold text-blue-900" value={p.event23} onChange={e => updatePlayer(p.id, 'event23', e.target.value)}>
+                      <option value="">（不参加・選択なし）</option>
+                      {EVENTS_DAY1.map(e => (
+                        <option key={e.id} value={e.id} disabled={!eventSettings[e.id]}>{e.name} {!eventSettings[e.id] ? '(受付終了)' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-black text-green-700 ml-2 italic uppercase tracking-widest">Day 2: 5/24 種目</label>
+                    <select className="w-full p-3 bg-green-50 rounded-xl border-2 border-transparent focus:border-green-600 outline-none font-bold text-green-900" value={p.event24} onChange={e => updatePlayer(p.id, 'event24', e.target.value)}>
+                      <option value="">（不参加・選択なし）</option>
+                      {EVENTS_DAY2.map(e => (
+                        <option key={e.id} value={e.id} disabled={!eventSettings[e.id]}>{e.name} {!eventSettings[e.id] ? '(受付終了)' : ''}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
-            )}
-            <p className="text-xs text-slate-500 mt-2">※申込内容の変更は、該当データを編集してください。</p>
+            ))}
           </div>
-        )}
 
-        {activeTab === 'settings' && (
-          <div className="max-w-2xl">
-            <h3 className="font-bold text-lg mb-4">受付ステータス管理</h3>
-            <p className="text-sm text-slate-500 mb-6">各競技の受付を停止・再開できます。停止した種目は参加者が選択できなくなります。</p>
-            
-            <div className="space-y-6">
-              <div>
-                <h4 className="font-bold bg-blue-100 text-blue-900 px-3 py-1 rounded mb-2 inline-block text-sm">23日(土) 競技</h4>
-                <div className="grid grid-cols-1 gap-2 border border-slate-200 rounded p-4">
-                  {EVENTS.DAY1.map(ev => {
-                    const isOpen = eventStatus[ev.id]?.isOpen !== false;
-                    return (
-                      <div key={ev.id} className="flex justify-between items-center py-2 border-b last:border-0 border-slate-100">
-                        <span>{ev.name} <span className="text-xs text-slate-400 ml-2">(申込: {eventStatus[ev.id]?.count || 0}名)</span></span>
-                        <button 
-                          onClick={() => toggleEventStatus(ev.id)}
-                          className={`px-4 py-1 text-sm rounded font-bold transition ${isOpen ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                        >
-                          {isOpen ? '受付を停止する' : '受付を再開する'}
-                        </button>
-                      </div>
-                    );
-                  })}
+          <div className="flex gap-4 pt-10 border-t-4 border-gray-50">
+            <button type="button" onClick={() => setView('home')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-500 font-black py-5 rounded-2xl transition-all">トップに戻る</button>
+            <button type="submit" className="flex-[2] bg-blue-600 hover:bg-blue-700 text-white font-black py-5 rounded-2xl shadow-xl transition-all flex items-center justify-center">申込内容を確認する <ChevronRight className="ml-2" size={24}/></button>
+          </div>
+        </form>
+      </div>
+    );
+  };
+
+  const ConfirmView = () => (
+    <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-2xl p-6 sm:p-10 animate-in zoom-in duration-300">
+      <h2 className="text-3xl font-black text-gray-800 mb-8 border-b-4 border-yellow-400 pb-6">入力内容の確認</h2>
+      <div className="space-y-8">
+        <div className="grid sm:grid-cols-2 gap-4 text-lg">
+          <div className="bg-gray-50 p-6 rounded-2xl"><span className="text-gray-400 text-xs block font-black mb-1">チーム名</span> <span className="font-black text-gray-800">{currentFormData?.teamName}</span></div>
+          <div className="bg-gray-50 p-6 rounded-2xl"><span className="text-gray-400 text-xs block font-black mb-1">代表者名</span> <span className="font-black text-gray-800">{currentFormData?.repName}</span></div>
+          <div className="bg-gray-50 p-6 rounded-2xl"><span className="text-gray-400 text-xs block font-black mb-1">メール</span> <span className="font-black text-gray-800">{currentFormData?.email}</span></div>
+          <div className="bg-gray-50 p-6 rounded-2xl"><span className="text-gray-400 text-xs block font-black mb-1">電話番号</span> <span className="font-black text-gray-800">{currentFormData?.phone}</span></div>
+        </div>
+        
+        <div className="space-y-4">
+          <h3 className="font-black text-gray-700 px-4">参加選手一覧（{currentFormData?.players.length}名）</h3>
+          {currentFormData?.players.map((p, i) => (
+            <div key={i} className="border-2 border-gray-100 p-6 rounded-3xl bg-white shadow-sm">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <p className="text-xs font-black text-gray-400 mb-1">{p.lastNameKana} {p.firstNameKana}</p>
+                  <p className="text-xl font-black text-gray-800">{p.lastName} {p.firstName} <span className="text-sm font-bold text-blue-600 ml-2">{p.ageOrGrade}</span></p>
                 </div>
               </div>
-
-              <div>
-                <h4 className="font-bold bg-orange-100 text-orange-900 px-3 py-1 rounded mb-2 inline-block text-sm">24日(日) 競技</h4>
-                <div className="grid grid-cols-1 gap-2 border border-slate-200 rounded p-4">
-                  {EVENTS.DAY2.map(ev => {
-                    const isOpen = eventStatus[ev.id]?.isOpen !== false;
-                    return (
-                      <div key={ev.id} className="flex justify-between items-center py-2 border-b last:border-0 border-slate-100">
-                        <span>{ev.name} <span className="text-xs text-slate-400 ml-2">(申込: {eventStatus[ev.id]?.count || 0}名)</span></span>
-                        <button 
-                          onClick={() => toggleEventStatus(ev.id)}
-                          className={`px-4 py-1 text-sm rounded font-bold transition ${isOpen ? 'bg-red-100 text-red-700 hover:bg-red-200' : 'bg-green-100 text-green-700 hover:bg-green-200'}`}
-                        >
-                          {isOpen ? '受付を停止する' : '受付を再開する'}
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="flex flex-wrap gap-4">
+                <span className={`px-4 py-1 rounded-full text-xs font-black ${p.event23 ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                  23日: {getEventName(p.event23) || '不参加'}
+                </span>
+                <span className={`px-4 py-1 rounded-full text-xs font-black ${p.event24 ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-400'}`}>
+                  24日: {getEventName(p.event24) || '不参加'}
+                </span>
               </div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
+      </div>
+      
+      <div className="flex gap-4 mt-12 pt-10 border-t-4 border-gray-50">
+        <button onClick={() => setView('form')} className="flex-1 bg-gray-100 hover:bg-gray-200 text-gray-500 font-black py-5 rounded-2xl">修正する</button>
+        <button onClick={() => { saveApplication(currentFormData); setView('complete'); }} className="flex-[2] bg-green-600 hover:bg-green-700 text-white font-black py-5 rounded-2xl shadow-xl transition-all text-xl">この内容で申込を完了する</button>
       </div>
     </div>
   );
-}
 
-// Custom simple styles using Tailwind classes applied globally via className where possible,
-// but adding custom styles for base inputs
-const style = document.createElement('style');
-style.innerHTML = `
-  .form-input {
-    @apply border border-slate-300 rounded-lg px-4 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-shadow;
-  }
-  .animate-fade-in {
-    animation: fadeIn 0.3s ease-out forwards;
-  }
-  @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
-  }
-`;
-document.head.appendChild(style);
+  const CompleteView = () => (
+    <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-2xl p-12 text-center animate-in zoom-in-95">
+      <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-8">
+        <CheckCircle size={64} className="text-green-500" />
+      </div>
+      <h2 className="text-4xl font-black text-gray-800 mb-4 tracking-tighter">申込が完了しました！</h2>
+      <p className="text-gray-500 mb-10 text-lg leading-relaxed font-bold">
+        大会当日、二戸市総合スポーツセンターでお待ちしております。<br/>
+        当日まで体調を整えてご参加ください。
+      </p>
+      <button onClick={() => setView('home')} className="bg-gray-900 hover:bg-black text-white font-black py-4 px-12 rounded-2xl shadow-xl transition-all">トップに戻る</button>
+    </div>
+  );
+
+  const AdminDashboardView = () => (
+    <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-gray-900 p-8 rounded-3xl text-white">
+        <div>
+          <h1 className="text-2xl font-black flex items-center"><Settings className="mr-3 text-blue-400"/> 管理者パネル</h1>
+          <p className="text-gray-400 text-xs font-bold mt-1 uppercase tracking-widest">Total applications: {applications.length}</p>
+        </div>
+        <div className="flex gap-3 w-full sm:w-auto">
+          <button onClick={exportToCSV} className="flex-1 bg-green-600 hover:bg-green-700 px-6 py-3 rounded-xl font-bold flex items-center justify-center"><Download size={18} className="mr-2"/> CSV</button>
+          <button onClick={() => { setIsAdminAuth(false); setView('home'); }} className="flex-1 bg-gray-800 hover:bg-red-900 px-6 py-3 rounded-xl font-bold flex items-center justify-center"><LogOut size={18} className="mr-2"/> ログアウト</button>
+        </div>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-8">
+        {/* 受付管理パネル */}
+        <div className="lg:col-span-1 space-y-6">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border-t-8 border-yellow-500">
+            <h3 className="font-black text-gray-800 mb-6 flex items-center uppercase tracking-widest text-xs italic">受付停止設定</h3>
+            <div className="space-y-3">
+              {ALL_EVENTS.map(e => (
+                <div key={e.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl">
+                  <span className="text-xs font-bold text-gray-600">{e.name}</span>
+                  <button onClick={() => toggleEventStatus(e.id)} className={`px-4 py-1 rounded-full text-[10px] font-black transition-all ${eventSettings[e.id] ? 'bg-blue-100 text-blue-700' : 'bg-red-500 text-white'}`}>
+                    {eventSettings[e.id] ? '受付中' : '停止中'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* 申込者リスト */}
+        <div className="lg:col-span-2 bg-white p-8 rounded-3xl shadow-xl border-t-8 border-blue-600">
+          <h3 className="font-black text-gray-800 mb-8 flex items-center uppercase tracking-widest text-xs italic">申込一覧</h3>
+          <div className="space-y-6">
+            {applications.map(app => (
+              <div key={app.id} className="group border-2 border-gray-100 p-6 rounded-3xl hover:border-blue-600 transition-all">
+                <div className="flex flex-col sm:flex-row justify-between gap-4 mb-4">
+                  <div>
+                    <h4 className="font-black text-xl text-gray-800">{app.teamName}</h4>
+                    <p className="text-xs text-gray-400 font-bold">{new Date(app.createdAt).toLocaleString()} | {app.repName} ({app.phone})</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => { setCurrentFormData(app); setEditingAppId(app.id); setView('form'); }} className="p-3 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-600 hover:text-white transition-all"><Edit size={18}/></button>
+                    <button onClick={() => deleteApplication(app.id)} className="p-3 bg-red-50 text-red-600 rounded-xl hover:bg-red-600 hover:text-white transition-all"><Trash2 size={18}/></button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {app.players.map((p, idx) => (
+                    <span key={idx} className="bg-gray-100 text-gray-600 px-3 py-1 rounded-lg text-xs font-bold">
+                      {p.lastName} {p.firstName} ({p.ageOrGrade})
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-slate-100 font-sans text-gray-900 pb-20">
+      <header className="bg-white/80 backdrop-blur-md sticky top-0 z-50 p-4 border-b-2 border-blue-600 shadow-sm">
+        <div className="max-w-6xl mx-auto flex justify-between items-center px-4">
+          <div className="flex items-center cursor-pointer transition-opacity hover:opacity-70" onClick={() => setView('home')}>
+            <div className="bg-blue-600 text-white w-10 h-10 rounded-xl flex items-center justify-center font-black shadow-lg shadow-blue-200 mr-3">卓</div>
+            <div>
+              <h1 className="font-black text-xl text-blue-900 leading-none">あべはんカップ</h1>
+              <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">5th Anniversary</span>
+            </div>
+          </div>
+          <button 
+            onClick={() => setView(isAdminAuth ? 'adminDashboard' : 'adminLogin')} 
+            className="flex items-center text-[10px] font-black uppercase tracking-widest text-gray-400 hover:text-blue-600 transition-colors bg-gray-50 px-4 py-2 rounded-xl"
+          >
+            {isAdminAuth ? <Settings size={14} className="mr-2 animate-spin-slow"/> : <Lock size={14} className="mr-2"/>}
+            管理者
+          </button>
+        </div>
+      </header>
+
+      <main className="p-4 sm:p-10">
+        {view === 'home' && <HomeView />}
+        {view === 'form' && <ApplicationFormView />}
+        {view === 'confirm' && <ConfirmView />}
+        {view === 'complete' && <CompleteView />}
+        {view === 'adminDashboard' && isAdminAuth && <AdminDashboardView />}
+        {view === 'adminLogin' && (
+          <div className="max-w-md mx-auto bg-white p-10 rounded-3xl shadow-2xl mt-12 text-center border-t-8 border-gray-900 animate-in slide-in-from-top-4">
+             <div className="w-20 h-20 bg-gray-100 rounded-3xl flex items-center justify-center mx-auto mb-8 shadow-inner">
+                <Lock size={32} className="text-gray-400" />
+             </div>
+             <h2 className="font-black text-2xl mb-2 text-gray-800 tracking-tighter">管理者ログイン</h2>
+             <p className="text-gray-400 text-xs font-bold mb-8 uppercase">Internal Access Only</p>
+             <div className="space-y-4 text-left">
+               <input 
+                type="password" 
+                placeholder="パスワードを入力" 
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className={`w-full border-4 ${loginError ? 'border-red-500' : 'border-gray-100'} p-5 rounded-2xl mb-2 focus:border-blue-600 outline-none transition-all font-mono font-bold text-center`} 
+                onKeyDown={(e) => e.key === 'Enter' && handleLogin()} 
+               />
+               {loginError && <p className="text-red-500 text-[10px] font-black text-center mb-4 uppercase tracking-widest">Invalid Password</p>}
+               <button onClick={handleLogin} className="w-full bg-gray-900 hover:bg-black text-white py-5 rounded-2xl font-black shadow-xl transition-all active:scale-95 text-lg">認証する</button>
+               <button onClick={() => setView('home')} className="w-full text-gray-300 font-bold text-xs text-center py-2">戻る</button>
+             </div>
+          </div>
+        )}
+      </main>
+
+      <footer className="mt-20 py-10 text-center">
+        <p className="text-[10px] font-black text-gray-300 uppercase tracking-[0.3em]">© 2026 ABEHAN CUP COMMITTEE / DESIGNED FOR ACCESSIBILITY</p>
+      </footer>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes spin-slow {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+          animation: spin-slow 8s linear infinite;
+        }
+      `}} />
+    </div>
+  );
+}
