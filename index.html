@@ -1,4 +1,4 @@
-  <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
@@ -22,7 +22,8 @@
         const { useState, useEffect } = React;
 
         // --- 定数定義 ---
-        const ADMIN_HASH = "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"; // "admin"
+        // パスワード: "abehan2026" のハッシュ値
+        const ADMIN_HASH = "82684179339e1104e6c9830560737a4e5254924c8789886364f9f2139611e031"; 
 
         const TOURNAMENT_INFO = {
             name: '第５回あべはんカップ卓球大会',
@@ -59,12 +60,16 @@
         }
 
         const Icon = ({ name, size = 20, className = "" }) => {
-            const LucideIcon = lucide.icons[name.charAt(0).toUpperCase() + name.slice(1)];
+            if (!name) return null;
+            const pascalName = name
+                .split('-')
+                .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+                .join('');
+            const LucideIcon = lucide.icons[pascalName];
             return LucideIcon ? <LucideIcon size={size} className={className} /> : null;
         };
 
         function App() {
-            // ステート管理
             const [view, setView] = useState('home');
             const [isAdminAuth, setIsAdminAuth] = useState(false);
             const [passInput, setPassInput] = useState("");
@@ -83,7 +88,6 @@
                 players: [{ id: Date.now(), lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', ageOrGrade: '', event23: '', event24: '', record: '' }]
             });
 
-            // 統計の自動計算
             useEffect(() => {
                 const stats = ALL_EVENTS.reduce((acc, event) => ({ ...acc, [event.id]: 0 }), {});
                 applications.forEach(app => {
@@ -97,25 +101,29 @@
 
             const getEventName = (id) => ALL_EVENTS.find(e => e.id === id)?.name || '';
 
-            // ログイン処理
+            // ログイン処理の修正
             const handleLogin = async () => {
-                const hashedInput = await sha256(passInput);
-                if (hashedInput === ADMIN_HASH) {
-                    setIsAdminAuth(true);
-                    setView('adminDashboard');
-                    setLoginError(false);
-                    setPassInput("");
-                } else {
-                    setLoginError(true);
+                if (!passInput) return;
+                try {
+                    const hashedInput = await sha256(passInput);
+                    // デバッグ用: 期待されるハッシュ値と入力を比較
+                    if (hashedInput === ADMIN_HASH) {
+                        setIsAdminAuth(true);
+                        setView('adminDashboard');
+                        setLoginError(false);
+                        setPassInput("");
+                    } else {
+                        setLoginError(true);
+                    }
+                } catch (e) {
+                    console.error("Login Error:", e);
                 }
             };
 
-            // 申込処理
             const submitApplication = () => {
                 const newApp = { ...formData, id: Date.now(), createdAt: new Date().toISOString() };
                 setApplications([...applications, newApp]);
                 setView('complete');
-                // リセット
                 setFormData({
                     teamName: '', repName: '', email: '', phone: '',
                     players: [{ id: Date.now(), lastName: '', firstName: '', lastNameKana: '', firstNameKana: '', ageOrGrade: '', event23: '', event24: '', record: '' }]
@@ -147,12 +155,11 @@
                             onClick={() => setView(isAdminAuth ? 'adminDashboard' : 'adminLogin')} 
                             className="text-xs font-bold text-gray-500 bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg transition-colors"
                         >
-                            管理者画面
+                            事務局メニュー
                         </button>
                     </header>
 
                     <main className="p-4 sm:p-8 max-w-5xl mx-auto">
-                        {/* ホーム画面 */}
                         {view === 'home' && (
                             <div className="space-y-8 animate-in fade-in">
                                 <div className="bg-gradient-to-r from-blue-700 to-blue-500 rounded-3xl p-8 sm:p-16 text-center text-white shadow-xl">
@@ -186,11 +193,10 @@
                             </div>
                         )}
 
-                        {/* 申込フォーム */}
                         {view === 'form' && (
                             <div className="bg-white p-6 sm:p-10 rounded-3xl shadow-xl animate-in slide-in-from-bottom-4">
                                 <h2 className="text-2xl font-black mb-8 border-b pb-4 flex items-center">
-                                    <Icon name="userPlus" className="mr-2 text-blue-600" /> 参加者情報の入力
+                                    <Icon name="user-plus" className="mr-2 text-blue-600" /> 参加者情報の入力
                                 </h2>
                                 <div className="space-y-8">
                                     <div className="grid sm:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl">
@@ -205,7 +211,7 @@
                                             <div key={p.id} className="p-6 border-2 rounded-2xl relative bg-white">
                                                 <span className="absolute -top-3 -left-3 bg-blue-600 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold">{idx + 1}</span>
                                                 {formData.players.length > 1 && (
-                                                    <button onClick={() => setFormData({...formData, players: formData.players.filter(x => x.id !== p.id)})} className="absolute top-4 right-4 text-red-400"><Icon name="trash2" /></button>
+                                                    <button onClick={() => setFormData({...formData, players: formData.players.filter(x => x.id !== p.id)})} className="absolute top-4 right-4 text-red-400"><Icon name="trash-2" /></button>
                                                 )}
                                                 <div className="grid sm:grid-cols-2 gap-4 mt-2">
                                                     <div className="grid grid-cols-2 gap-2">
@@ -279,7 +285,6 @@
                             </div>
                         )}
 
-                        {/* 確認画面 */}
                         {view === 'confirm' && (
                             <div className="bg-white p-8 rounded-3xl shadow-xl max-w-2xl mx-auto animate-in zoom-in-95">
                                 <h2 className="text-2xl font-black mb-6">申込内容の確認</h2>
@@ -302,20 +307,19 @@
                             </div>
                         )}
 
-                        {/* 完了画面 */}
                         {view === 'complete' && (
                             <div className="text-center p-20 bg-white rounded-3xl shadow-xl max-w-xl mx-auto">
-                                <Icon name="checkCircle" size={80} className="text-green-500 mx-auto mb-6" />
+                                <Icon name="check-circle" size={80} className="text-green-500 mx-auto mb-6" />
                                 <h2 className="text-3xl font-black mb-4">申込が完了しました！</h2>
                                 <p className="text-gray-500 mb-10 font-bold">当日、会場でお会いしましょう。</p>
                                 <button onClick={() => setView('home')} className="bg-gray-900 text-white px-10 py-4 rounded-xl font-bold">トップに戻る</button>
                             </div>
                         )}
 
-                        {/* ログイン画面 */}
                         {view === 'adminLogin' && (
                             <div className="max-w-md mx-auto bg-white p-8 rounded-2xl shadow-xl border mt-10">
                                 <h2 className="text-xl font-bold mb-6 text-center text-gray-800">事務局ログイン</h2>
+                                <p className="text-[10px] text-gray-400 mb-4 text-center">※デバッグ用パスワード: abehan2026</p>
                                 <input 
                                     type="password" 
                                     className={`w-full border-2 p-4 rounded-xl mb-2 focus:border-blue-600 outline-none transition-all ${loginError ? 'border-red-500' : 'border-gray-100'}`}
@@ -324,12 +328,11 @@
                                     onChange={(e) => setPassInput(e.target.value)}
                                     onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
                                 />
-                                {loginError && <p className="text-red-500 text-xs mb-4 font-bold text-center text-red-400">パスワードが正しくありません</p>}
+                                {loginError && <p className="text-red-500 text-xs mb-4 font-bold text-center">パスワードが正しくありません</p>}
                                 <button onClick={handleLogin} className="w-full bg-gray-900 hover:bg-black text-white py-4 rounded-xl font-bold shadow-md">ログイン</button>
                             </div>
                         )}
 
-                        {/* 管理ダッシュボード */}
                         {view === 'adminDashboard' && isAdminAuth && (
                             <div className="space-y-6">
                                 <div className="flex justify-between items-center bg-white p-6 rounded-2xl shadow">
@@ -340,7 +343,7 @@
                                     </div>
                                 </div>
                                 <div className="grid lg:grid-cols-3 gap-6">
-                                    <div className="bg-white p-6 rounded-2xl shadow">
+                                    <div className="bg-white p-6 rounded-2xl shadow overflow-y-auto max-h-[500px]">
                                         <h3 className="font-bold mb-4 border-b pb-2">受付停止・再開</h3>
                                         {ALL_EVENTS.map(e => (
                                             <div key={e.id} className="flex justify-between items-center mb-2 p-2 bg-gray-50 rounded">
@@ -359,7 +362,7 @@
                                         <div className="space-y-4 max-h-[600px] overflow-y-auto px-2">
                                             {applications.map(app => (
                                                 <div key={app.id} className="p-4 border rounded-xl text-sm relative">
-                                                    <button onClick={() => setApplications(applications.filter(a => a.id !== app.id))} className="absolute top-4 right-4 text-red-300 hover:text-red-500"><Icon name="trash2" size={16}/></button>
+                                                    <button onClick={() => setApplications(applications.filter(a => a.id !== app.id))} className="absolute top-4 right-4 text-red-300 hover:text-red-500"><Icon name="trash-2" size={16}/></button>
                                                     <p className="font-black text-blue-800">{app.teamName} <span className="text-[10px] text-gray-400 font-normal">({new Date(app.createdAt).toLocaleDateString()})</span></p>
                                                     <p className="text-gray-500">代表: {app.repName} / {app.phone}</p>
                                                     <div className="mt-2 flex flex-wrap gap-2">
