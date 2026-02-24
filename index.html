@@ -412,14 +412,22 @@
         }
 
         function downloadCSV() {
-            const header = "申込日時,チーム,代表者,電話,選手名,かな,区分,23日種目,24日種目,実績\n";
+            // ヘッダーに「メール」を追加
+            const header = "申込日時,チーム,代表者,電話,メール,選手名,かな,区分(学年・年齢),23日種目,24日種目,実績\n";
             const rows = applications.flatMap(app => 
                 app.players.map(p => [
-                    app.timestamp, app.team, app.leader, app.tel, p.name, p.kana, p.category,
+                    app.timestamp, 
+                    app.team, 
+                    app.leader, 
+                    app.tel, 
+                    app.email, // 追加
+                    p.name, 
+                    p.kana, 
+                    p.category, // 「区分」は学年・年齢
                     getEventName(p.d1) || '未参加',
                     getEventName(p.d2) || '未参加',
                     p.rec
-                ].map(v => `"${v}"`).join(','))
+                ].map(v => `"${v || ''}"`).join(','))
             ).join('\n');
             const blob = new Blob(["\uFEFF" + header + rows], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
