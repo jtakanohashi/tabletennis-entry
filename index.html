@@ -37,7 +37,6 @@
         .btn-primary:hover { background-color: #1d4ed8; transform: scale(1.02); }
         .btn-primary:active { transform: scale(0.98); }
 
-        /* カスタムチェックボックス */
         .custom-checkbox {
             width: 24px;
             height: 24px;
@@ -48,7 +47,6 @@
 </head>
 <body class="min-h-screen">
 
-    <!-- ナビゲーション -->
     <nav class="sticky top-0 z-50 glass-card px-6 py-4 flex justify-between items-center shadow-sm">
         <div class="flex items-center gap-3 cursor-pointer" onclick="showView('home')">
             <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white font-black italic shadow-lg">A</div>
@@ -102,7 +100,7 @@
                     </div>
                     <div>
                         <h3 id="form-title" class="text-xl font-black text-slate-800">参加申込フォーム</h3>
-                        <p class="text-sm text-slate-400 font-medium">代表者と選手情報を入力してください</p>
+                        <p class="text-sm text-slate-400 font-medium">情報を入力してください</p>
                     </div>
                 </div>
 
@@ -200,7 +198,6 @@
     </footer>
 
     <script>
-        // --- 設定とデータ ---
         const ADMIN_PASSWORD = "abehan2026";
         let isAdminLoggedIn = false;
         
@@ -217,7 +214,7 @@
             ]
         };
 
-        // サンプルデータ
+        // データ初期化 (processedは常にfalseから開始)
         let applications = [
             { 
                 id: 1, 
@@ -225,8 +222,8 @@
                 leader: "あべ 太郎", 
                 email: "test@example.com", 
                 tel: "019-000-0000", 
-                timestamp: "2026/02/21 12:00", 
-                processed: true, // 受付済みフラグ
+                timestamp: "2026/02/24 10:00", 
+                processed: false, 
                 players: [{ name: "あべ 太郎", kana: "あべ たろう", category: "一般", d1: "d1_5", d2: "d2_3", rec: "なし" }] 
             }
         ];
@@ -234,7 +231,6 @@
         let eventStatus = {};
         [...EVENTS.day1, ...EVENTS.day2].forEach(e => eventStatus[e.id] = true);
 
-        // --- 画面遷移 ---
         function showView(viewId) {
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
             document.getElementById('view-' + viewId).classList.add('active');
@@ -248,7 +244,6 @@
             else showView('login');
         }
 
-        // --- 管理者ログイン ---
         function handleLogin() {
             const pass = document.getElementById('admin-pass').value;
             const errorMsg = document.getElementById('login-error');
@@ -267,7 +262,6 @@
             showView('home');
         }
 
-        // --- ホーム画面描画 ---
         function renderHome() {
             const stats = {};
             [...EVENTS.day1, ...EVENTS.day2].forEach(e => stats[e.id] = 0);
@@ -295,7 +289,6 @@
             renderList('stats-day2', EVENTS.day2);
         }
 
-        // --- フォーム管理 ---
         function startNewApplication() {
             document.getElementById('edit-id').value = "";
             document.getElementById('form-title').innerText = "参加申込フォーム";
@@ -327,15 +320,15 @@
                 <div class="grid sm:grid-cols-2 gap-6 mt-4">
                     <input class="p-name w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="氏名" value="${data?.name || ''}">
                     <input class="p-kana w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="ふりがな" value="${data?.kana || ''}">
-                    <input class="p-cat w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="学年・年齢(区分)" value="${data?.category || ''}">
-                    <input class="p-rec w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="大会実績等" value="${data?.rec || ''}">
+                    <input class="p-cat w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="学年・年齢" value="${data?.category || ''}">
+                    <input class="p-rec w-full p-4 bg-slate-50 rounded-xl font-bold outline-none border-2 border-transparent focus:border-blue-500" placeholder="実績" value="${data?.rec || ''}">
                     <select class="p-d1 w-full p-4 bg-blue-50 rounded-xl font-bold outline-none">
-                        <option value="">5/23 種目選択</option>
-                        ${EVENTS.day1.map(e => `<option value="${e.id}" ${data?.d1 === e.id ? 'selected' : ''} ${!eventStatus[e.id] && data?.d1 !== e.id ? 'disabled' : ''}>${e.name} ${!eventStatus[e.id] && data?.d1 !== e.id ? '(停止)' : ''}</option>`).join('')}
+                        <option value="">5/23 種目</option>
+                        ${EVENTS.day1.map(e => `<option value="${e.id}" ${data?.d1 === e.id ? 'selected' : ''} ${!eventStatus[e.id] && data?.d1 !== e.id ? 'disabled' : ''}>${e.name}</option>`).join('')}
                     </select>
                     <select class="p-d2 w-full p-4 bg-emerald-50 rounded-xl font-bold outline-none">
-                        <option value="">5/24 種目選択</option>
-                        ${EVENTS.day2.map(e => `<option value="${e.id}" ${data?.d2 === e.id ? 'selected' : ''} ${!eventStatus[e.id] && data?.d2 !== e.id ? 'disabled' : ''}>${e.name} ${!eventStatus[e.id] && data?.d2 !== e.id ? '(停止)' : ''}</option>`).join('')}
+                        <option value="">5/24 種目</option>
+                        ${EVENTS.day2.map(e => `<option value="${e.id}" ${data?.d2 === e.id ? 'selected' : ''} ${!eventStatus[e.id] && data?.d2 !== e.id ? 'disabled' : ''}>${e.name}</option>`).join('')}
                     </select>
                 </div>
             `;
@@ -350,23 +343,19 @@
             let html = `
                 <div class="p-8 bg-slate-900 text-white rounded-[2rem]">
                     <p class="text-2xl font-black">${team}</p>
-                    <p class="font-bold opacity-80">${leader} 様 / ${document.getElementById('form-tel').value}</p>
-                    <p class="text-xs opacity-60">${document.getElementById('form-email').value}</p>
+                    <p class="font-bold opacity-80">${leader} 様</p>
                 </div>
                 <div class="space-y-4">
             `;
-
             document.querySelectorAll('.player-item').forEach(el => {
                 html += `
                     <div class="p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                        <p class="text-lg font-black">${el.querySelector('.p-name').value} (${el.querySelector('.p-cat').value})</p>
-                        <p class="text-xs text-slate-400 font-bold italic">ふりがな: ${el.querySelector('.p-kana').value || '未入力'}</p>
+                        <p class="text-lg font-black">${el.querySelector('.p-name').value}</p>
                         <p class="text-xs text-slate-400 font-bold mt-2">23日: ${getEventName(el.querySelector('.p-d1').value) || '不参加'}</p>
                         <p class="text-xs text-slate-400 font-bold">24日: ${getEventName(el.querySelector('.p-d2').value) || '不参加'}</p>
                     </div>
                 `;
             });
-
             html += `</div>`;
             document.getElementById('confirm-content').innerHTML = html;
             showView('confirm');
@@ -396,19 +385,20 @@
 
             if(editId) {
                 const idx = applications.findIndex(a => a.id == editId);
+                // 編集時は、元のprocessedステータスをそのまま維持する（勝手に書き換えない）
                 applications[idx] = { ...applications[idx], ...appData };
             } else {
+                // 新規申込時は、必ずprocessed: falseにする
                 applications.push({
                     id: Date.now(),
                     ...appData,
                     timestamp: new Date().toLocaleString('ja-JP'),
-                    processed: false
+                    processed: false 
                 });
             }
             showView('success');
         }
 
-        // --- 管理機能 ---
         function renderAdmin() {
             const controlBox = document.getElementById('admin-event-controls');
             const listBox = document.getElementById('admin-entries-list');
@@ -428,7 +418,7 @@
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <span class="font-black text-blue-600 text-lg">${app.team || '(個人)'}</span>
-                            <p class="text-sm font-bold text-slate-400">${app.leader} / ${app.tel} / ${app.timestamp}</p>
+                            <p class="text-sm font-bold text-slate-400">${app.leader} / ${app.timestamp}</p>
                         </div>
                         <div class="flex items-center gap-3">
                             <label class="flex items-center gap-2 cursor-pointer bg-slate-50 px-3 py-2 rounded-xl hover:bg-slate-100">
@@ -468,7 +458,6 @@
             const container = document.getElementById('players-container');
             container.innerHTML = "";
             app.players.forEach(p => addPlayerField(p));
-            
             showView('form');
         }
 
@@ -478,13 +467,13 @@
         }
 
         function deleteApp(id) {
-            if(!confirm('この申込データを削除しますか？')) return;
+            if(!confirm('削除しますか？')) return;
             applications = applications.filter(a => a.id !== id);
             renderAdmin();
         }
 
         function downloadCSV() {
-            const header = "受付状況,申込日時,チーム,代表者,電話,メール,選手名,かな,区分(学年・年齢),23日種目,24日種目,実績\n";
+            const header = "受付状況,申込日時,チーム,代表者,電話,メール,選手名,かな,区分,23日種目,24日種目,実績\n";
             const rows = applications.flatMap(app => 
                 app.players.map(p => [
                     app.processed ? "受付済み" : "未受付",
@@ -504,13 +493,10 @@
             const blob = new Blob(["\uFEFF" + header + rows], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
-            a.href = url; a.download = 'abehan_cup_entry_list.csv'; a.click();
+            a.href = url; a.download = 'abehan_cup_list.csv'; a.click();
         }
 
-        // 初期化
-        window.onload = () => {
-            renderHome();
-        };
+        window.onload = () => { renderHome(); };
     </script>
 </body>
 </html>
