@@ -194,7 +194,7 @@
     </main>
 
     <footer class="mt-20 py-12 border-t border-slate-100 text-center opacity-30">
-        <p class="text-[10px] font-black tracking-[0.5em] uppercase">© 2026 ABEHAN CUP COMMITTEE</p>
+        <p class="text-[10px] font-black tracking-[0.5em] uppercase">© 2026 ABEHAN CUP COMMITTEE / 管理者専用</p>
     </footer>
 
     <script>
@@ -214,8 +214,9 @@
             ]
         };
 
-        // データ初期化 (processedは常にfalseから開始)
-        let applications = [
+        // ローカルストレージからの読み込み
+        const savedApps = localStorage.getItem('abehan_applications');
+        let applications = savedApps ? JSON.parse(savedApps) : [
             { 
                 id: 1, 
                 team: "サンプル卓球クラブ", 
@@ -228,8 +229,17 @@
             }
         ];
 
-        let eventStatus = {};
-        [...EVENTS.day1, ...EVENTS.day2].forEach(e => eventStatus[e.id] = true);
+        const savedStatus = localStorage.getItem('abehan_event_status');
+        let eventStatus = savedStatus ? JSON.parse(savedStatus) : {};
+        if (!savedStatus) {
+            [...EVENTS.day1, ...EVENTS.day2].forEach(e => eventStatus[e.id] = true);
+        }
+
+        // 保存用関数
+        function saveToStorage() {
+            localStorage.setItem('abehan_applications', JSON.stringify(applications));
+            localStorage.setItem('abehan_event_status', JSON.stringify(eventStatus));
+        }
 
         function showView(viewId) {
             document.querySelectorAll('.view-section').forEach(s => s.classList.remove('active'));
@@ -385,10 +395,8 @@
 
             if(editId) {
                 const idx = applications.findIndex(a => a.id == editId);
-                // 編集時は、元のprocessedステータスをそのまま維持する（勝手に書き換えない）
                 applications[idx] = { ...applications[idx], ...appData };
             } else {
-                // 新規申込時は、必ずprocessed: falseにする
                 applications.push({
                     id: Date.now(),
                     ...appData,
@@ -396,6 +404,7 @@
                     processed: false 
                 });
             }
+            saveToStorage(); // ストレージに保存
             showView('success');
         }
 
@@ -440,6 +449,7 @@
             const app = applications.find(a => a.id == id);
             if(app) {
                 app.processed = !app.processed;
+                saveToStorage();
                 renderAdmin();
             }
         }
@@ -463,12 +473,14 @@
 
         function toggleEvent(id) {
             eventStatus[id] = !eventStatus[id];
+            saveToStorage();
             renderAdmin();
         }
 
         function deleteApp(id) {
             if(!confirm('削除しますか？')) return;
             applications = applications.filter(a => a.id !== id);
+            saveToStorage();
             renderAdmin();
         }
 
